@@ -42,8 +42,10 @@ starts validating.
 
 Open a project that has a `.circleci/config.yml` and work as usual. Diagnostics surface
 **when Claude edits the file** (the server is push-based; a plain read does not trigger
-validation — make a trivial edit to force a check). Claude sees the same diagnostics your
-editor would:
+validation — make a trivial edit to force a check). The very first edit also downloads and
+starts the server (a few seconds), so diagnostics may land a moment later or on your next
+edit; once the server is warm, subsequent edits are instant. Claude sees the same
+diagnostics your editor would:
 
 ```text
 ✘ [Line 12:7] Cannot find declaration for job "nonexistent-job"
