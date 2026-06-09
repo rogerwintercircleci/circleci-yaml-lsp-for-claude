@@ -45,7 +45,9 @@ function makeResolver(schema) {
 }
 
 // First markdownDescription for a property def: direct, else one level into
-// $ref / oneOf / anyOf / allOf / items / then / else (depth-bounded).
+// $ref / oneOf / anyOf / allOf / items / then / else (depth-bounded). Falls back to a
+// plain `description` only as a last resort, so it adds coverage if upstream ever stops
+// setting markdownDescription without changing any resolution that already finds one.
 function descOf(def, resolveRef, depth = 0) {
   if (!def || typeof def !== "object" || depth > 3) return null;
   if (typeof def.markdownDescription === "string" && def.markdownDescription.trim()) {
@@ -57,6 +59,9 @@ function descOf(def, resolveRef, depth = 0) {
   }
   for (const kw of ["items", "then", "else"]) {
     if (def[kw]) { const d = descOf(def[kw], resolveRef, depth + 1); if (d) return d; }
+  }
+  if (typeof def.description === "string" && def.description.trim()) {
+    return def.description.trim();
   }
   return null;
 }
