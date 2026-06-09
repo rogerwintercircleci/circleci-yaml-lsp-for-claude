@@ -1,0 +1,119 @@
+// Unit tests for the pure helpers in lsp-proxy-lib.mjs.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { makeInScope, posToOffset, applyEdits, frame, makeReader, DEFAULT_SCOPE } from "../plugins/circleci-yaml-lsp/bin/lsp-proxy-lib.mjs";
+
+test("makeInScope: default matches config-named YAML under .circleci/", () => {
+  const inScope = makeInScope();
+  for (const uri of [
+    "file:///r/.circleci/config.yml",
+    "file:///r/.circleci/config.yaml",
+    "file:///r/.circleci/continue_config.yml",
+    "file:///r/.circleci/setup_config.yml",
+    "file:///deep/path/.circleci/config.yml",
+  ]) assert.equal(inScope(uri), true, uri);
+});
+
+test("makeInScope: default excludes non-config and non-.circleci YAML", () => {
+  const inScope = makeInScope();
+  for (const uri of [
+    "file:///r/.circleci/test-suites.yml",   // real CircleCI artifact, not a config
+    "file:///r/.circleci/scripts/deploy.yml", // nested helper
+    "file:///r/docker-compose.yml",
+    "file:///r/config.yml",                   // not under .circleci/
+    "file:///r/myproject.circleci/config.yml", // no slash before .circleci
+  ]) assert.equal(inScope(uri), false, uri);
+  assert.equal(inScope(undefined), false);
+  assert.equal(inScope(123), false);
+});
+
+test("makeInScope: env override regex, with fallback on invalid pattern", () => {
+  const any = makeInScope("\\.ya?ml$");
+  assert.equal(any("file:///x/anything.yaml"), true);
+  assert.equal(any("file:///x/anything.json"), false);
+
+  let errored = false;
+  const fallback = makeInScope("(", () => { errored = true; }); // invalid regex
+  assert.equal(errored, true);
+  assert.equal(fallback("file:///r/.circleci/config.yml"), true); // fell back to default
+});
+
+test("posToOffset: maps line/character to string offset", () => {
+  const t = "ab\ncd\nef";
+  assert.equal(posToOffset(t, { line: 0, character: 0 }), 0);
+  assert.equal(posToOffset(t, { line: 0, character: 1 }), 1);
+  assert.equal(posToOffset(t, { line: 1, character: 0 }), 3);
+  assert.equal(posToOffset(t, { line: 2, character: 1 }), 7);
+  assert.equal(posToOffset(t, { line: 9, character: 0 }), t.length); // line past end clamps
+  assert.equal(posToOffset(t, { line: 0, character: 99 }), t.length); // char past end clamps
+});
+
+test("applyEdits: full replace when range is absent", () => {
+  assert.equal(applyEdits("old text", [{ text: "brand new" }]), "brand new");
+  assert.equal(applyEdits("x", []), "x");
+  assert.equal(applyEdits("x", undefined), "x");
+});
+
+test("applyEdits: incremental replace / insert / delete", () => {
+  assert.equal(applyEdits("hello", [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, text: "bye" }]), "bye");
+  assert.equal(applyEdits("ac", [{ range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } }, text: "b" }]), "abc"); // insert
+  assert.equal(applyEdits("abc", [{ range: { start: { line: 0, character: 1 }, end: { line: 0, character: 2 } }, text: "" }]), "ac"); // delete
+});
+
+test("applyEdits: multiple changes applied in order", () => {
+  // BETA -> DELTA via a single incremental change on line 11 (mirrors the e2e test)
+  const base = "a\nb\n      - BETA\n";
+  const out = applyEdits(base, [{ range: { start: { line: 2, character: 8 }, end: { line: 2, character: 12 } }, text: "DELTA" }]);
+  assert.equal(out, "a\nb\n      - DELTA\n");
+});
+
+test("frame: Content-Length is the BYTE length (multibyte safe)", () => {
+  assert.equal(frame(Buffer.from("hi", "utf8")).toString("utf8"), "Content-Length: 2\r\n\r\nhi");
+  // 'é' is 2 bytes in UTF-8 though 1 JS char
+  assert.equal(frame(Buffer.from("é", "utf8")).toString("utf8"), "Content-Length: 2\r\n\r\né");
+});
+
+// Helper: collect messages a reader emits for given chunks.
+function readAll(chunks) {
+  const out = [];
+  const read = makeReader((msg, body) => out.push({ msg, body }));
+  for (const c of chunks) read(Buffer.from(c));
+  return out;
+}
+const framed = (obj) => { const b = Buffer.from(JSON.stringify(obj), "utf8"); return `Content-Length: ${b.length}\r\n\r\n` + JSON.stringify(obj); };
+
+test("makeReader: single and multiple messages in one chunk", () => {
+  assert.deepEqual(readAll([framed({ a: 1 })]).map((x) => x.msg), [{ a: 1 }]);
+  assert.deepEqual(readAll([framed({ a: 1 }) + framed({ b: 2 })]).map((x) => x.msg), [{ a: 1 }, { b: 2 }]);
+});
+
+test("makeReader: message split across chunks", () => {
+  const f = framed({ hello: "world" });
+  const cut = Math.floor(f.length / 2);
+  const out = readAll([f.slice(0, cut), f.slice(cut)]);
+  assert.deepEqual(out.map((x) => x.msg), [{ hello: "world" }]);
+});
+
+test("makeReader: multibyte body length is honored", () => {
+  const out = readAll([framed({ text: "héllo — 日本" })]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].msg.text, "héllo — 日本");
+});
+
+test("makeReader: resync past a malformed header, then deliver the next message", () => {
+  const out = readAll(["GARBAGE\r\n\r\n" + framed({ ok: true })]);
+  assert.deepEqual(out.map((x) => x.msg), [{ ok: true }]);
+});
+
+test("makeReader: unparseable body yields msg=null with raw bytes", () => {
+  const bad = "Content-Length: 3\r\n\r\n{ {";
+  const out = readAll([bad]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].msg, null);
+  assert.equal(out[0].body.toString("utf8"), "{ {");
+});
+
+test("DEFAULT_SCOPE is exported and case-insensitive", () => {
+  assert.ok(DEFAULT_SCOPE instanceof RegExp);
+  assert.equal(DEFAULT_SCOPE.test("file:///R/.CIRCLECI/CONFIG.YML"), true);
+});

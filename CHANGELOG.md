@@ -3,6 +3,11 @@
 All notable changes to this plugin are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## 0.1.2 — 2026-06-08
+
+- Internal: extract the proxy's pure helpers into `lsp-proxy-lib.mjs` and add a test suite
+  (Node's built-in runner + a mock LSP server; unit + integration). No behavior change.
+
 ## 0.1.1 — 2026-06-08
 
 - **Fix document duplication.** The server duplicates a document's content on
