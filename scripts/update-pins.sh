@@ -28,7 +28,7 @@ VERSION=""
 for arg in "$@"; do
   case "$arg" in
     --write) WRITE=1 ;;
-    *) [ -z "$VERSION" ] && VERSION="$arg" || true ;;
+    *) if [ -z "$VERSION" ]; then VERSION="$arg"; fi ;;
   esac
 done
 VERSION="${VERSION:-$(grep -E '^VERSION=' "$launcher" | head -1 | cut -d'"' -f2)}"
