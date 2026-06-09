@@ -21,7 +21,7 @@ jobs:
             sudo apt-get install -y shellcheck
       - run:
           name: Lint shell scripts (shellcheck)
-          command: shellcheck plugins/circleci-yaml-lsp/bin/circleci-yaml-lsp scripts/update-pins.sh
+          command: shellcheck plugins/circleci-yaml-lsp/bin/circleci-yaml-lsp scripts/update-pins.sh scripts/open-upstream-update-pr.sh
       - run:
           name: Check JS syntax (node --check)
           command: |
