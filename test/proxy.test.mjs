@@ -8,8 +8,10 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PROXY = path.join(here, "..", "plugins", "circleci-yaml-lsp", "bin", "lsp-proxy.mjs");
@@ -198,5 +200,28 @@ describe("lsp-proxy (integration)", () => {
     proc.kill();
     assert.ok(ok, "received hover reply");
     assert.equal(reply.result, null, "null for user-defined job name");
+  });
+
+  test("hover reads the file from disk when no didOpen preceded it (reload fallback)", async () => {
+    // Write a real in-scope config; the proxy has no mirror for it (no didOpen),
+    // so the hover branch must fall back to reading the file from disk.
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cci-hover-"));
+    mkdirSync(path.join(dir, ".circleci"), { recursive: true });
+    const file = path.join(dir, ".circleci", "config.yml");
+    writeFileSync(file, "version: 2.1\njobs:\n  build:\n    docker:\n      - image: cimg/base:current\n");
+    const uri = pathToFileURL(file).href;
+
+    const { proc, received, send } = startProxy();
+    initialize(send); await waitFor(() => received.some((m) => m.id === 1 && m.result));
+    initialized(send);
+    // No didOpen for `uri`.
+    send({ jsonrpc: "2.0", id: 96, method: "textDocument/hover", params: { textDocument: { uri }, position: { line: 0, character: 0 } } });
+    const ok = await waitFor(() => received.some((m) => m.id === 96));
+    const reply = received.find((m) => m.id === 96);
+    proc.kill();
+    assert.ok(ok, "received hover reply");
+    assert.ok(reply.result, "disk fallback should produce a hover for 'version'");
+    assert.match(reply.result.contents.value, /2\.1/);
+    assert.equal(serverSaw(received).some((r) => r.method === "textDocument/hover"), false, "server never saw hover");
   });
 });

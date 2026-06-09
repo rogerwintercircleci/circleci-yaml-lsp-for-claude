@@ -101,12 +101,27 @@ const HOVER_DOCS = {
   "xcode": "The version of Xcode that is installed on the virtual machine, see the [Supported Xcode Versions section of the Testing iOS](https://circleci.com/docs/testing-ios#supported-xcode-versions) document for the complete list.",
 };
 
+// Curated descriptions that take precedence over HOVER_DOCS. These are keys the
+// schema defines in several places with different meanings; name-based lookup can't
+// tell them apart, and the first schema definition is wrong or misleading for the
+// common case (e.g. `version` resolves to a Docker image-version blurb, `type` to a
+// workflow job type rather than a parameter type). The text here covers the senses a
+// reader is most likely hovering.
+const OVERRIDES = {
+  "version": "The CircleCI configuration version. Use `2.1` to enable pipelines, orbs, and reusable commands, executors, jobs, and parameters.",
+  "name": "A name. On a step, the title shown in the CircleCI UI (default: the full `command`). Also used as a name/alias elsewhere — e.g. a matrix `name`, or a Docker container `name`.",
+  "type": "A type field. In a parameter declaration: the parameter type (`string`, `boolean`, `integer`, `enum`, `executor`, `steps`, or `env_var_name`). On a workflow job: the job type, e.g. `approval`.",
+  "when": "Conditional execution. On a step (or a `run`'s `when`): one of `always`, `on_success`, or `on_fail`. As a `when:` conditional step or a workflow's `when:`: a logic statement that gates execution.",
+};
+
 // YAML key characters (letters, digits, hyphens, underscores, dots, slashes for orb refs).
 const KEY_CHAR = /[a-zA-Z0-9_\-.\/]/;
 
-// Find the word token at (line, character) in `text` (both 0-based).
-// Returns the token string, or null if the position is not on a word token.
+// Find the word token at (line, character) in `text` (both 0-based). Returns
+// { token, lineStr, start, end } describing the token and its place on the line,
+// or null if the position is not on a word token.
 function tokenAt(text, line, character) {
+  if (line < 0 || character < 0) return null;
   const lines = text.split("\n");
   if (line >= lines.length) return null;
   const lineStr = lines[line];
@@ -118,15 +133,27 @@ function tokenAt(text, line, character) {
   while (end < lineStr.length && KEY_CHAR.test(lineStr[end])) end++;
 
   if (start === end) return null;
-  return lineStr.slice(start, end);
+  return { token: lineStr.slice(start, end), lineStr, start, end };
+}
+
+// Only document a token that is a YAML mapping key (immediately followed by `:`) or
+// the entire scalar of a block-sequence entry (`- checkout`). This keeps hover on keys
+// and bare step references while rejecting scalar VALUES that happen to equal a key
+// name (e.g. a step `name: checkout` should not show the `checkout` step's docs).
+function isDocumentablePosition(lineStr, start, end) {
+  if (lineStr[end] === ":") return true; // mapping key
+  const before = lineStr.slice(0, start);
+  const after = lineStr.slice(end);
+  return /^\s*-\s+$/.test(before) && after.trim() === ""; // bare "- <token>" sequence item
 }
 
 // Build an LSP Hover result for the given document text and cursor position.
 // Returns null if no documentation is available.
 export function doHover(text, line, character) {
-  const token = tokenAt(text, line, character);
-  if (!token) return null;
-  const desc = HOVER_DOCS[token];
+  const t = tokenAt(text, line, character);
+  if (!t) return null;
+  if (!isDocumentablePosition(t.lineStr, t.start, t.end)) return null;
+  const desc = OVERRIDES[t.token] ?? HOVER_DOCS[t.token];
   if (!desc) return null;
   return { contents: { kind: "markdown", value: desc } };
 }

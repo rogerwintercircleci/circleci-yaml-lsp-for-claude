@@ -167,9 +167,9 @@ const fromServer = makeReader((msg, body) => {
     const sync = msg.result.capabilities.textDocumentSync;
     msg.result.capabilities.textDocumentSync =
       sync && typeof sync === "object" ? { ...sync, openClose: true, change: 1 } : { openClose: true, change: 1 };
-    // The server already advertises hoverProvider but its implementation returns null
-    // for all positions (stub as of 0.35.x). Preserve it so hover wires up automatically
-    // once the upstream server starts returning real results.
+    // Ensure hoverProvider is advertised so the client actually sends hover requests.
+    // The proxy answers them itself (see SCOPED_REQUEST_METHODS below); the upstream
+    // server stubs hover and never sees these requests, so the value only needs to be truthy.
     if (!msg.result.capabilities.hoverProvider) msg.result.capabilities.hoverProvider = true;
     process.stdout.write(frame(Buffer.from(JSON.stringify(msg), "utf8")));
     return;

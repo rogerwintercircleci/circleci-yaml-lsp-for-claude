@@ -148,12 +148,14 @@ describe("lsp-hover (unit)", () => {
     "          path: dist",
   ].join("\n");
 
-  test("returns markdown description for a known root key", () => {
-    // 'version' starts at line 0, character 0
-    const result = doHover(CONFIG, 0, 0);
+  test("returns the correct description for the top-level version key", () => {
+    // Regression guard: name-based first-wins extraction resolved `version` to a
+    // Docker image-version blurb; the curated override must describe the config version.
+    const result = doHover(CONFIG, 0, 0); // 'version' at line 0, char 0
     assert.ok(result !== null, "should return a result");
     assert.equal(result.contents.kind, "markdown");
-    assert.ok(result.contents.value.length > 10, "description should be non-trivial");
+    assert.match(result.contents.value, /2\.1/, "should describe the config version");
+    assert.doesNotMatch(result.contents.value, /custom docker image/i, "must not be the image-version blurb");
   });
 
   test("returns description for a known nested key", () => {
@@ -179,10 +181,28 @@ describe("lsp-hover (unit)", () => {
     assert.ok(result.contents.value.toLowerCase().includes("executor"));
   });
 
+  test("documents a bare block-sequence step reference (- checkout)", () => {
+    // 'checkout' on line 7 is a bare "- checkout" step, char 8
+    const result = doHover(CONFIG, 7, 8);
+    assert.ok(result !== null, "bare step should resolve");
+    assert.match(result.contents.value.toLowerCase(), /check/);
+  });
+
+  test("does not document a scalar value that merely equals a key name", () => {
+    // 'checkout' here is the VALUE of a step's `name`, not a key or a bare step.
+    const text = "      - run:\n          name: checkout\n";
+    assert.equal(doHover(text, 1, 16), null);
+  });
+
   test("returns null for a user-defined name (not a schema key)", () => {
     // 'build' (job name) is on line 2, character 2
     const result = doHover(CONFIG, 2, 2);
     assert.equal(result, null);
+  });
+
+  test("returns null for negative positions", () => {
+    assert.equal(doHover(CONFIG, -1, 0), null);
+    assert.equal(doHover(CONFIG, 0, -1), null);
   });
 
   test("returns null for whitespace / empty position", () => {
