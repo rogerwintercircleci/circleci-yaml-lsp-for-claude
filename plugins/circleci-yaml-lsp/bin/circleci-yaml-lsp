@@ -89,7 +89,7 @@ if [ -z "$SERVER_BIN" ]; then
       if actual_sha="$(sha256_of "$tmp")"; then
         [ "$actual_sha" = "$expected_sha" ] || die "SHA-256 mismatch for $asset — refusing to run (expected $expected_sha, got $actual_sha)"
       else
-        log "warning: no sha256 tool found; verified size only for $asset"
+        die "no sha256 tool (sha256sum/shasum) found to verify $asset — refusing to run. Install one, or set CIRCLECI_YAML_LSP_BINARY to a server binary you trust."
       fi
     fi
 

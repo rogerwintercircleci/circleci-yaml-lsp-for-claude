@@ -23,7 +23,7 @@
 
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { makeInScope, posToOffset, applyEdits, frame, makeReader } from "./lsp-proxy-lib.mjs";
+import { makeInScope, applyEdits, frame, makeReader } from "./lsp-proxy-lib.mjs";
 
 const serverBin = process.argv[2];
 if (!serverBin) {
@@ -40,6 +40,8 @@ const SYNC_METHODS = new Set([
   "textDocument/didOpen",
   "textDocument/didChange",
   "textDocument/didClose",
+  "textDocument/didSave",
+  "textDocument/willSave",
 ]);
 
 const TOKEN = process.env.CIRCLECI_YAML_LSP_TOKEN || "";
@@ -53,8 +55,8 @@ function dbg(dir, msg) {
   let line = `${dir} ${msg.method || "resp id=" + msg.id}`;
   const uri = msg.params?.textDocument?.uri || msg.params?.uri;
   if (uri) line += ` uri=${uri.split("/").pop()}`;
-  if (msg.method === "textDocument/didOpen") line += ` textLen=${(msg.params.textDocument.text || "").length}`;
-  if (msg.method === "textDocument/didChange") line += ` v=${msg.params.textDocument?.version} changes=${JSON.stringify((msg.params.contentChanges || []).map((c) => ({ range: c.range, textLen: (c.text || "").length })))}`;
+  if (msg.method === "textDocument/didOpen") line += ` textLen=${(msg.params?.textDocument?.text || "").length}`;
+  if (msg.method === "textDocument/didChange") line += ` v=${msg.params?.textDocument?.version} changes=${JSON.stringify((msg.params?.contentChanges || []).map((c) => ({ range: c?.range, textLen: (c?.text || "").length })))}`;
   try { appendFileSync(DEBUG, line + "\n"); } catch { /* ignore */ }
 }
 
@@ -64,10 +66,18 @@ server.on("error", (e) => {
   process.exit(1);
 });
 server.stderr.on("data", (d) => process.stderr.write(d));
-server.on("exit", (code, signal) => process.exit(code == null ? (signal ? 1 : 0) : code));
+server.on("exit", (code, signal) => exitAfterFlush(code == null ? (signal ? 1 : 0) : code));
 
 function sendToServer(obj) {
   server.stdin.write(frame(Buffer.from(JSON.stringify(obj), "utf8")));
+}
+
+// Exit only after any buffered stdout (e.g. a final publishDiagnostics) has flushed.
+function exitAfterFlush(code) {
+  const done = () => process.exit(code);
+  if (process.stdout.writableLength === 0) done();
+  else process.stdout.once("drain", done);
+  setTimeout(done, 1000).unref(); // safety net if drain never fires
 }
 
 // Mirror of each in-scope document's full text, so we can replay edits as opens.
@@ -82,9 +92,13 @@ const fromClient = makeReader((msg, body) => {
 
   // The server duplicates a document's content when it receives didChange (verified
   // against 0.35.0). Track the full text ourselves and replay every change as a
-  // didOpen, which the server applies cleanly. didOpen/didClose pass through.
+  // didOpen, which the server applies cleanly AND immediately — didChange is debounced
+  // ~1s server-side, so the didOpen is what makes diagnostics attach to the edit. The
+  // docText mirror also reconstructs full text from incremental changes, so this stays
+  // correct even for a client that ignores the forced full sync. didOpen/didClose pass through.
   if (msg && msg.method === "textDocument/didOpen") {
-    docText.set(msg.params.textDocument.uri, msg.params.textDocument.text || "");
+    const td = msg.params?.textDocument;
+    if (td?.uri) docText.set(td.uri, td.text || "");
     server.stdin.write(frame(body));
     return;
   }
@@ -117,7 +131,7 @@ const fromServer = makeReader((msg, body) => {
   // Force FULL document sync. The server advertises incremental sync, but a
   // full-text change with a zero-width range makes it duplicate the document;
   // full sync makes the client send the whole document, replaced wholesale.
-  if (msg && msg.result && msg.result.capabilities && "textDocumentSync" in msg.result.capabilities) {
+  if (msg && msg.result && msg.result.capabilities) {
     const sync = msg.result.capabilities.textDocumentSync;
     msg.result.capabilities.textDocumentSync =
       sync && typeof sync === "object" ? { ...sync, openClose: true, change: 1 } : { openClose: true, change: 1 };
@@ -131,13 +145,17 @@ const fromServer = makeReader((msg, body) => {
 process.stdin.on("data", fromClient);
 server.stdout.on("data", fromServer);
 
-process.stdin.on("end", () => { try { server.stdin.end(); } catch { /* ignore */ } });
+process.stdin.on("end", () => {
+  try { server.stdin.end(); } catch { /* ignore */ }
+  // If the server doesn't terminate on stdin EOF, don't orphan it (or hang).
+  setTimeout(() => { try { server.kill(); } catch { /* ignore */ } exitAfterFlush(0); }, 2000).unref();
+});
 process.stdin.on("error", () => {});
 process.stdout.on("error", () => {}); // clean EPIPE when the client goes away
 server.stdin.on("error", () => {});
 
 // Don't leave an orphaned server behind.
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) {
-  process.on(sig, () => { try { server.kill(sig); } catch { /* ignore */ } process.exit(0); });
+  process.on(sig, () => { try { server.kill(sig); } catch { /* ignore */ } exitAfterFlush(0); });
 }
 process.on("exit", () => { try { server.kill(); } catch { /* ignore */ } });

@@ -21,13 +21,15 @@ jobs:
           name: Check JS syntax (node --check)
           command: |
             for f in $(git ls-files '*.mjs'); do
-              node --check "$f" && echo "ok: $f"
+              node --check "$f" || exit 1
+              echo "ok: $f"
             done
       - run:
           name: Validate JSON manifests
           command: |
             for f in $(git ls-files '*.json'); do
-              node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" && echo "ok: $f"
+              node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" || exit 1
+              echo "ok: $f"
             done
 
   test:
@@ -40,6 +42,7 @@ jobs:
           command: npm run test:ci
       - store_test_results:
           path: test-results
+          when: always
 
 workflows:
   ci:

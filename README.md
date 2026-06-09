@@ -140,7 +140,8 @@ export CIRCLECI_YAML_LSP_BINARY="/c/Users/you/bin/windows-amd64-lsp.exe"
 
 The plugin (MIT) does **not** bundle or redistribute the language server. On first use it
 downloads the pinned release binary from CircleCI's official GitHub Releases over HTTPS and
-verifies it against a **SHA-256 and byte-size pinned in the launcher** before executing it.
+verifies it against a **SHA-256 and byte-size pinned in the launcher** before executing it —
+and **refuses to run** if the checksum doesn't match or no SHA-256 tool is available.
 The downloaded binary is CircleCI's
 [`circleci-yaml-language-server`](https://github.com/CircleCI-Public/circleci-yaml-language-server),
 licensed under Apache-2.0. To audit or replace it, use `CIRCLECI_YAML_LSP_BINARY`.

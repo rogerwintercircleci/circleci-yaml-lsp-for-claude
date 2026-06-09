@@ -1,10 +1,11 @@
 // Pure, side-effect-free helpers for lsp-proxy.mjs, separated so they can be
 // unit-tested without spawning a server. No imports, no process/IO access.
 
-// Default "in scope" = a config-named YAML directly inside a .circleci/ directory
-// (e.g. .circleci/config.yml, .circleci/continue_config.yml). Excludes other YAML
-// kept under .circleci/ (e.g. test-suites.yml) and files in subdirectories.
-export const DEFAULT_SCOPE = /(^|\/)\.circleci\/[^/]*config[^/]*\.ya?ml$/i;
+// Default "in scope" = a CircleCI config file directly inside a .circleci/ directory:
+// config.yml/.yaml or a <prefix>_config.yml (e.g. continue_config.yml, setup_config.yml).
+// Excludes other YAML kept under .circleci/ (test-suites.yml, eslint.config.yml,
+// db-config.yml, config-backup.yml) and files in subdirectories.
+export const DEFAULT_SCOPE = /(^|\/)\.circleci\/([^/]*_)?config\.ya?ml$/i;
 
 // Build an inScope(uri) predicate. `pattern` (optional) is a regex source string
 // (matched case-insensitively) overriding the default; an invalid pattern falls
@@ -76,7 +77,9 @@ export function makeReader(onMessage) {
       buf = buf.subarray(start + len);
       let msg = null;
       try { msg = JSON.parse(body.toString("utf8")); } catch { /* pass raw */ }
-      onMessage(msg, body);
+      // A bug or malformed message must not tear down the whole stream/proxy.
+      try { onMessage(msg, body); }
+      catch (e) { try { process.stderr.write(`[lsp-proxy] message handler error: ${e && e.message}\n`); } catch { /* ignore */ } }
     }
   };
 }

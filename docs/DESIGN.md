@@ -57,11 +57,11 @@ stdio) and the server (a child it spawns with `-stdio`). It forwards everything 
   scope are dropped, so the server never sees — and never diagnoses — non-CircleCI YAML.
 - **`publishDiagnostics`** for out-of-scope URIs are dropped defensively.
 
-"In scope" defaults to the regex `(^|/)\.circleci/[^/]*config[^/]*\.ya?ml$` — a config-named
-YAML directly under a `.circleci/` directory. This matches `config.yml` and continuation
-configs like `continue_config.yml`, while excluding non-config YAML kept beside them (e.g.
-`test-suites.yml`) and helper files in subdirectories. Override with
-`CIRCLECI_YAML_LSP_SCOPE_PATTERN`.
+"In scope" defaults to the regex `(^|/)\.circleci/([^/]*_)?config\.ya?ml$` — a CircleCI config
+file directly under a `.circleci/` directory: `config.yml`/`.yaml`, or a `<prefix>_config.yml`
+continuation config (e.g. `continue_config.yml`, `setup_config.yml`). It excludes non-config
+YAML kept beside them (`test-suites.yml`, `eslint.config.yml`, `db-config.yml`) and helper
+files in subdirectories. Override with `CIRCLECI_YAML_LSP_SCOPE_PATTERN`.
 
 Forwarding requests (completion, definition, …) unchanged is safe: for a document the
 server never opened it simply replies empty, so there's no hang or hard error.

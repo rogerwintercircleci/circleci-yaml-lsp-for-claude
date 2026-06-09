@@ -35,7 +35,10 @@ npm test        # or: node --test test/lib.test.mjs test/proxy.test.mjs
   asserting scope filtering, the `didChange`→`didOpen` replay (the doubling-bug regression),
   full-sync rewrite, token injection + reply-swallowing, and diagnostics scoping.
 
-Tests live at the repo root and are **not** part of the installed plugin.
+Tests live at the repo root and are **not** part of the installed plugin. Keep new tests
+inside a `describe(...)` block: `npm run test:ci` (used by CI) relies on that so Node's JUnit
+reporter emits a `<testsuite>` element, which CircleCI's test-results parser requires — loose
+top-level `test()` calls produce output CircleCI rejects.
 
 ## Releasing a new version
 

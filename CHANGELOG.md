@@ -3,6 +3,25 @@
 All notable changes to this plugin are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## 0.1.4 — 2026-06-08
+
+Hardening from a full code review (core behavior unchanged from 0.1.1):
+
+- **Proxy robustness:** a malformed message can no longer crash the proxy (the reader isolates
+  handler errors; the didOpen and debug-log paths are null-guarded). Buffered output is flushed
+  before exit, and the server is no longer orphaned if the client closes stdin without a
+  shutdown. `didSave`/`willSave` are now scoped like the other document-sync notifications, and
+  the full-sync rewrite is applied unconditionally.
+- **Tighter scope:** the default matches only `config.yml`/`.yaml` and `<prefix>_config.yml`
+  under `.circleci/`, so files like `eslint.config.yml` or `db-config.yml` are no longer
+  mis-analyzed as CircleCI configs.
+- **Launcher:** fails closed if no SHA-256 tool is available (previously verified size only with
+  a warning), honoring the documented "verifies SHA-256" guarantee.
+- **CI:** lint loops now fail on the first bad file (a non-last broken file previously passed
+  green); test results are grouped via `describe()` and stored with `when: always`. Removed the
+  JUnit post-processor — Node emits CircleCI-valid `<testsuite>` output directly.
+- Test suite expanded to 24 cases.
+
 ## 0.1.3 — 2026-06-08
 
 - Launcher: shellcheck-clean `CDPATH` handling when resolving the script directory
